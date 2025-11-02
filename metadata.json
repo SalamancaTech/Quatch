@@ -1,0 +1,5 @@
+{
+  "name": "Quatch Card Game",
+  "description": "A digital implementation of the family card game 'Quatch'. The goal is to be the first player to get rid of all your cards by strategically playing on a central pile, navigating special card events, and managing your hand through different stages of the game.",
+  "requestFramePermissions": []
+}
