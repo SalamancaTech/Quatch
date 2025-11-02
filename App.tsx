@@ -6,6 +6,7 @@ import GameBoard from './components/GameBoard';
 import AnimatedCard from './components/AnimatedCard';
 import SpecialEffect from './components/SpecialEffect';
 import BinViewModal from './components/BinViewModal';
+import GameOverModal from './components/GameMessage';
 
 type AnimationState = {
   cards: CardType[];
@@ -173,6 +174,7 @@ const App: React.FC = () => {
           ...state,
           currentPlayerId: nextPlayerId,
           isPlayerTurn: nextPlayerId === 0,
+          turnCount: state.turnCount + 1,
       };
   }, []);
 
@@ -483,7 +485,7 @@ const App: React.FC = () => {
         const newPlayers = prevState.players.map(player => {
             if (player.id === eatingPlayerId) {
                 const newHand = [...player.hand, ...eatenCards].sort((a, b) => a.value - b.value);
-                return { ...player, hand: newHand };
+                return { ...player, hand: newHand, cardsEaten: player.cardsEaten + eatenCards.length };
             }
             return player;
         });
@@ -1052,16 +1054,17 @@ const App: React.FC = () => {
         />
       </div>
 
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 flex space-x-4">
-        {gameState.stage === GameStage.GAME_OVER && (
-          <div className="text-center p-4 bg-black/50 rounded-lg">
-            <h2 className="text-3xl font-bold mb-4">{gameState.winner?.isAI ? 'You Lose!' : 'You Win!'}</h2>
-            <button onClick={() => setGameState(initializeGame())} className="px-6 py-3 bg-gray-200 text-black font-bold rounded-lg shadow-lg hover:bg-white transition-colors">
-              Play Again
-            </button>
-          </div>
-        )}
-      </div>
+      {gameState.stage === GameStage.GAME_OVER && gameState.winner && (
+          <GameOverModal
+            winner={gameState.winner}
+            humanPlayer={humanPlayer}
+            aiPlayer={aiPlayer}
+            turnCount={gameState.turnCount}
+            gameDuration={Math.round((Date.now() - gameState.gameStartTime) / 1000)}
+            difficulty={difficulty}
+            onPlayAgain={handleResetGame}
+          />
+      )}
     </div>
   );
 };

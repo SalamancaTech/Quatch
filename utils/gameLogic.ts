@@ -59,8 +59,8 @@ export const shuffleDeck = <T,>(array: T[]): T[] => {
 
 export const initializeGame = (): GameState => {
     const players: Player[] = [
-        { id: 0, name: 'Player 1', hand: [], lastChance: [], lastStand: [], isAI: false },
-        { id: 1, name: 'Opponent', hand: [], lastChance: [], lastStand: [], isAI: true },
+        { id: 0, name: 'Player 1', hand: [], lastChance: [], lastStand: [], isAI: false, cardsEaten: 0 },
+        { id: 1, name: 'Opponent', hand: [], lastChance: [], lastStand: [], isAI: true, cardsEaten: 0 },
     ];
     const deck = shuffleDeck(createDeck());
     
@@ -74,6 +74,8 @@ export const initializeGame = (): GameState => {
         isPlayerTurn: false,
         winner: null,
         turnDirection: 1,
+        turnCount: 0,
+        gameStartTime: Date.now(),
     };
 };
 

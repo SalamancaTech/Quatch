@@ -36,6 +36,7 @@ export interface Player {
   lastChance: Card[];
   lastStand: Card[];
   isAI: boolean;
+  cardsEaten: number;
 }
 
 export enum GameStage {
@@ -55,6 +56,8 @@ export interface GameState {
   isPlayerTurn: boolean;
   winner: Player | null;
   turnDirection: number; // 1 for clockwise, -1 for counter-clockwise
+  turnCount: number;
+  gameStartTime: number;
 }
 
 export type Difficulty = 'Easy' | 'Medium' | 'Hard' | 'Family';
