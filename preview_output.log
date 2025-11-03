@@ -1,0 +1,14 @@
+vite v6.4.1 building for production...
+transforming...
+✓ 39 modules transformed.
+rendering chunks...
+[plugin vite:singlefile]
+
+[plugin vite:singlefile] Inlining: index-7GzItpTM.js
+[plugin vite:singlefile] Inlining: style-B5AKVpCf.css
+[plugin vite:singlefile] NOTE: asset not inlined: manifest-CU2-SSY-.json
+computing gzip size...
+[vite-plugin-static-copy] Copied 1 items.
+dist/manifest-CU2-SSY-.json    1.23 kB │ gzip:   0.58 kB
+dist/index.html              992.27 kB │ gzip: 282.29 kB
+✓ built in 3.57s
