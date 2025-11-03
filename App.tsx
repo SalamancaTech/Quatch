@@ -377,7 +377,6 @@ const App: React.FC = () => {
     }
 
     if (!startRect) {
-        console.error("Could not determine a starting rectangle for the animation.");
         handlePlayComplete(cards, player);
         return;
     }
