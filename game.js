@@ -326,7 +326,7 @@ function initGame() {
     state.stage = 2; // Swap Stage
 
     updateUI();
-    showModal('generic', "Swap Phase", "Drag cards between your Hand and Last Chance slots to swap them. Click 'Start Game' when ready.");
+    // showModal('generic', "Swap Phase", "Drag cards between your Hand and Last Chance slots to swap them. Click 'Start Game' when ready.");
 
     els.btn.style.display = 'block';
     els.btn.innerText = "FINISH SWAP";
@@ -338,15 +338,25 @@ function resetGame() {
     // Return to start screen
     els.menuBtn.classList.add('hidden');
     els.startScreen.classList.remove('hidden');
-    // Clear board visuals
+
+    // Clear State entirely
     state.pile = [];
     state.bin = [];
+    state.deck = [];
+    state.turn = null;
+    state.stage = 0;
+
     state.players.human.hand = [];
     state.players.ai.hand = [];
     state.players.human.lastChance = [];
     state.players.ai.lastChance = [];
     state.players.human.lastStand = [];
     state.players.ai.lastStand = [];
+    state.players.human.cardsEaten = 0;
+    state.players.ai.cardsEaten = 0;
+    state.stats.startTime = 0;
+    state.stats.turns = 0;
+
     updateUI();
 }
 
