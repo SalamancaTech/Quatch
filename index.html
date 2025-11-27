@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Quatch</title>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <!-- Opponent Area -->
+        <div id="opponent-area">
+            <div id="opponent-info" class="player-info">
+                <span class="player-name">OPPONENT</span>
+            </div>
+            <div id="opponent-hand-container">
+                <div id="opponent-hand-card" class="card-back">
+                    <span id="opponent-card-count">0</span>
+                </div>
+            </div>
+            <div id="opponent-special-cards">
+                <div id="opponent-last-stand" class="special-pile"></div>
+                <!-- Last Chance is overlaid via CSS/JS -->
+            </div>
+        </div>
+
+        <!-- Center Table -->
+        <div id="table-area">
+            <div id="bin-area" class="pile-area">
+                <div class="pile-label">BIN</div>
+                <div id="bin-pile"></div>
+            </div>
+
+            <div id="play-area" class="pile-area">
+                <div class="pile-label">PILE</div>
+                <div id="center-pile"></div>
+                <div id="message-display"></div>
+            </div>
+
+            <div id="deck-area" class="pile-area">
+                <div class="pile-label">DECK</div>
+                <div id="deck-pile" class="card-back"></div>
+            </div>
+        </div>
+
+        <!-- Player Area -->
+        <div id="player-area">
+            <div id="player-special-cards">
+                <div id="player-last-stand" class="special-pile"></div>
+            </div>
+
+            <div id="player-hand-container">
+                <!-- Cards injected here -->
+            </div>
+
+            <div id="player-controls">
+                <button id="action-button" class="game-btn">START GAME</button>
+            </div>
+
+            <div id="player-info" class="player-info">
+                <span class="player-name">PLAYER</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Messages/Events -->
+    <div id="game-modal" class="hidden">
+        <div class="modal-content">
+            <h2 id="modal-title">Event</h2>
+            <p id="modal-message">Message</p>
+            <button id="modal-btn" class="game-btn">OK</button>
+        </div>
+    </div>
+
+    <script type="module" src="game.js"></script>
+</body>
+</html>
