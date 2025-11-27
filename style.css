@@ -353,7 +353,7 @@ body {
     z-index: 200;
 }
 
-.modal.hidden { display: none !important; }
+.hidden { display: none !important; }
 
 .modal-content {
     background: var(--modal-bg);

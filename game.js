@@ -313,6 +313,7 @@ function initGame() {
     updateUI();
     showModal('generic', "Swap Phase", "Drag cards between your Hand and Last Chance slots to swap them. Click 'Start Game' when ready.");
 
+    els.btn.style.display = 'block';
     els.btn.innerText = "FINISH SWAP";
     els.btn.onclick = endSwapPhase;
 }
@@ -441,8 +442,7 @@ function endSwapPhase() {
     // Logic assumes arrays are full.
 
     state.stage = 3;
-    els.btn.innerText = "PLAY DRAGGED CARD";
-    els.btn.onclick = () => showMessage("Drag cards to the pile!"); // Disable button action, guide user
+    els.btn.style.display = 'none'; // Hide button for gameplay loop
 
     determineStartPlayer();
     updateUI();
@@ -895,9 +895,19 @@ function showMessage(text, color='white') {
 
 // --- Menu & Modals ---
 
-els.menuBtn.onclick = () => {
+els.menuBtn.onclick = (e) => {
+    e.stopPropagation(); // Prevent global click from immediately closing it
     els.menuDropdown.classList.toggle('hidden');
 };
+
+// Global click to close menu
+document.addEventListener('click', (e) => {
+    if (!els.menuDropdown.classList.contains('hidden')) {
+        if (!els.menuDropdown.contains(e.target) && e.target !== els.menuBtn) {
+            hideMenu();
+        }
+    }
+});
 
 els.cheatToggle.onclick = () => {
     state.settings.cheating = !state.settings.cheating;
