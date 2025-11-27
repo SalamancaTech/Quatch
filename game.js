@@ -323,14 +323,37 @@ function initGame() {
     state.stats.startTime = Date.now();
 
     dealCards(); // Stage 1
-    state.stage = 2; // Swap Stage
+    state.stage = 3; // Skip Swap Stage -> Gameplay
 
     updateUI();
-    // showModal('generic', "Swap Phase", "Drag cards between your Hand and Last Chance slots to swap them. Click 'Start Game' when ready.");
+    determineStartPlayer();
+}
 
-    els.btn.style.display = 'block';
-    els.btn.innerText = "FINISH SWAP";
-    els.btn.onclick = endSwapPhase;
+function resetGame() {
+    hideMenu();
+    // Return to start screen
+    els.menuBtn.classList.add('hidden');
+    els.startScreen.classList.remove('hidden');
+
+    // Clear State entirely
+    state.pile = [];
+    state.bin = [];
+    state.deck = [];
+    state.turn = null;
+    state.stage = 0;
+
+    state.players.human.hand = [];
+    state.players.ai.hand = [];
+    state.players.human.lastChance = [];
+    state.players.ai.lastChance = [];
+    state.players.human.lastStand = [];
+    state.players.ai.lastStand = [];
+    state.players.human.cardsEaten = 0;
+    state.players.ai.cardsEaten = 0;
+    state.stats.startTime = 0;
+    state.stats.turns = 0;
+
+    updateUI();
 }
 
 function resetGame() {
@@ -443,47 +466,6 @@ function determineStartPlayer() {
 }
 
 // --- Gameplay Interactions (Called by DragController) ---
-
-function handleSwapDrop(item, targetIndex, targetType) {
-    if (state.stage !== 2) return;
-
-    const human = state.players.human;
-
-    if (item.source === 'hand' && targetType === 'chance') {
-        // Swap Hand Card <-> LC Card at targetIndex
-        const handCard = human.hand[item.index];
-        const lcCard = human.lastChance[targetIndex];
-
-        human.hand[item.index] = lcCard;
-        human.lastChance[targetIndex] = handCard;
-
-    } else if (item.source === 'chance' && targetType === 'hand') {
-        // Technically this is just moving it to hand.
-        // But in Swap Phase, "Hand" is a loose concept.
-        // If we drop LC onto Hand, we usually want to swap with *something* or just move it?
-        // Implementation: We won't support dragging LC -> Hand directly without a target card in this version for simplicity,
-        // UNLESS we want to support "Add to hand"? But hand size is fixed 3 dealt.
-        // Let's stick to: Drag Hand -> LC Slot swaps them.
-        // If user drags LC -> Hand Area, we do nothing or auto-swap with last hand card? Ambiguous.
-        showMessage("Drag Hand card to Slot to swap.");
-        return;
-    }
-
-    sortHand('human');
-    updateUI();
-}
-
-function endSwapPhase() {
-    // Ensure 3 cards in hand?
-    // Actually, user can put all cards in hand? No, slots are fixed.
-    // Logic assumes arrays are full.
-
-    state.stage = 3;
-    els.btn.style.display = 'none'; // Hide button for gameplay loop
-
-    determineStartPlayer();
-    updateUI();
-}
 
 function handlePlayDrop(item) {
     if (state.turn !== 'human') return;
