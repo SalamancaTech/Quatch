@@ -69,6 +69,7 @@ const els = {
     menuBtn: document.getElementById('menu-btn'),
     menuDropdown: document.getElementById('menu-dropdown'),
     cheatToggle: document.getElementById('cheat-toggle'),
+    startScreen: document.getElementById('start-screen'),
 
     modals: {
         generic: document.getElementById('game-modal'),
@@ -286,6 +287,20 @@ const dragCtrl = {
 
 // --- Initialization ---
 
+function initApp() {
+    dragCtrl.init();
+    // Start screen is visible by default in HTML, ensuring game state is ready
+    // We might want to "clear" the board visuals just in case
+    renderPile();
+    renderDeckBin();
+}
+
+function startGame() {
+    els.startScreen.classList.add('hidden');
+    els.menuBtn.classList.remove('hidden');
+    initGame();
+}
+
 function initGame() {
     createDeck();
     shuffleDeck();
@@ -320,7 +335,19 @@ function initGame() {
 
 function resetGame() {
     hideMenu();
-    initGame();
+    // Return to start screen
+    els.menuBtn.classList.add('hidden');
+    els.startScreen.classList.remove('hidden');
+    // Clear board visuals
+    state.pile = [];
+    state.bin = [];
+    state.players.human.hand = [];
+    state.players.ai.hand = [];
+    state.players.human.lastChance = [];
+    state.players.ai.lastChance = [];
+    state.players.human.lastStand = [];
+    state.players.ai.lastStand = [];
+    updateUI();
 }
 
 function createDeck() {
@@ -968,5 +995,4 @@ function renderStats() {
 }
 
 // --- Start ---
-dragCtrl.init();
-initGame();
+initApp();

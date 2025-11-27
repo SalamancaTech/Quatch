@@ -479,6 +479,50 @@ body {
     text-align: center;
 }
 
+/* Start Screen */
+#start-screen {
+    background-color: var(--bg-color); /* Cover the game */
+    z-index: 300; /* Above everything */
+}
+
+#start-screen .modal-content {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+}
+
+.game-title {
+    font-size: 5rem;
+    color: var(--color-yellow);
+    text-shadow: 4px 4px 0px #000;
+    margin-bottom: 40px;
+}
+
+.start-menu-options {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+    align-items: center;
+}
+
+.main-menu-btn {
+    width: 80%;
+    max-width: 300px;
+    padding: 15px;
+    font-size: 1.5rem;
+    border: 2px solid white;
+    background-color: rgba(0,0,0,0.6);
+    transition: transform 0.1s, background-color 0.2s;
+}
+
+.main-menu-btn:hover {
+    transform: scale(1.05);
+    background-color: var(--color-yellow);
+    color: black;
+    border-color: black;
+}
+
 #opponent-cards-wrapper {
     display: flex;
     flex-direction: row;

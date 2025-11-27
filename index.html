@@ -8,9 +8,21 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div id="start-screen" class="modal">
+        <div class="modal-content">
+            <h1 class="game-title">QUATCH</h1>
+            <div class="start-menu-options">
+                <button class="game-btn main-menu-btn" onclick="startGame()">PLAY</button>
+                <button class="game-btn main-menu-btn" onclick="showModal('difficulty')">DIFFICULTY</button>
+                <button class="game-btn main-menu-btn" onclick="showModal('rules')">RULES</button>
+                <button class="game-btn main-menu-btn" onclick="showModal('stats')">STATISTICS</button>
+            </div>
+        </div>
+    </div>
+
     <div id="game-container">
         <!-- Menu Button -->
-        <button id="menu-btn" class="menu-btn">
+        <button id="menu-btn" class="menu-btn hidden">
             <div class="hamburger"></div>
             <div class="hamburger"></div>
             <div class="hamburger"></div>
