@@ -9,6 +9,28 @@
 </head>
 <body>
     <div id="game-container">
+        <!-- Menu Button -->
+        <button id="menu-btn" class="menu-btn">
+            <div class="hamburger"></div>
+            <div class="hamburger"></div>
+            <div class="hamburger"></div>
+        </button>
+
+        <!-- Menu Dropdown -->
+        <div id="menu-dropdown" class="menu-dropdown hidden">
+            <button class="menu-item" onclick="resetGame()">New Game</button>
+            <button class="menu-item" onclick="showModal('difficulty')">Difficulty</button>
+            <button class="menu-item" onclick="showModal('rules')">Rules</button>
+            <button class="menu-item" onclick="showModal('stats')">Statistics</button>
+            <div class="menu-separator"></div>
+            <div class="menu-item-toggle">
+                <span>Cheatin'</span>
+                <div class="toggle-switch" id="cheat-toggle">
+                    <div class="toggle-knob"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Opponent Area -->
         <div id="opponent-area">
             <div id="opponent-info" class="player-info">
@@ -21,8 +43,7 @@
                     </div>
                 </div>
                 <div id="opponent-special-cards">
-                    <div id="opponent-last-stand" class="special-pile"></div>
-                    <!-- Last Chance is overlaid via CSS/JS -->
+                    <!-- Injected via JS -->
                 </div>
             </div>
         </div>
@@ -49,7 +70,7 @@
         <!-- Player Area -->
         <div id="player-area">
             <div id="player-special-cards">
-                <div id="player-last-stand" class="special-pile"></div>
+                <!-- Injected via JS -->
             </div>
 
             <div id="player-hand-container">
@@ -66,12 +87,86 @@
         </div>
     </div>
 
-    <!-- Modal for Messages/Events -->
-    <div id="game-modal" class="hidden">
+    <!-- Modals -->
+
+    <!-- Generic Message Modal -->
+    <div id="game-modal" class="modal hidden">
         <div class="modal-content">
             <h2 id="modal-title">Event</h2>
             <p id="modal-message">Message</p>
             <button id="modal-btn" class="game-btn">OK</button>
+        </div>
+    </div>
+
+    <!-- Rules Modal -->
+    <div id="rules-modal" class="modal hidden">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h2>Game Rules</h2>
+                <button class="close-btn" onclick="hideModal('rules')">&times;</button>
+            </div>
+            <div class="modal-body scrollable">
+                <div class="rule-section">
+                    <h3>Objective</h3>
+                    <p>Be the first player to get rid of all your cards from your Hand, Last Chance, and Last Stand piles.</p>
+                </div>
+                <div class="rule-section">
+                    <h3>The Setup</h3>
+                    <ul>
+                        <li>3 face-down <strong>Last Stand</strong> cards.</li>
+                        <li>3 face-up <strong>Last Chance</strong> cards on top.</li>
+                        <li>3-card <strong>Hand</strong>.</li>
+                        <li>Swap Phase: Swap cards between Hand and Last Chance.</li>
+                    </ul>
+                </div>
+                <div class="rule-section">
+                    <h3>Gameplay</h3>
+                    <ul>
+                        <li>Play card(s) of equal or higher value than the pile.</li>
+                        <li>If you can't play, you must <strong>Eat</strong> the pile.</li>
+                        <li>Always draw up to 3 cards if deck is not empty.</li>
+                    </ul>
+                </div>
+                <div class="rule-section">
+                    <h3>Special Cards</h3>
+                    <ul>
+                        <li><strong class="text-blue">2 (Reset):</strong> Play on anything. Resets pile value.</li>
+                        <li><strong class="text-yellow">10 (Clear):</strong> Play on anything. Clears pile, take another turn.</li>
+                        <li><strong>4-of-a-Kind:</strong> Clears pile, take another turn.</li>
+                    </ul>
+                </div>
+            </div>
+            <button class="game-btn mt-4" onclick="hideModal('rules')">Got It!</button>
+        </div>
+    </div>
+
+    <!-- Statistics Modal -->
+    <div id="stats-modal" class="modal hidden">
+        <div class="modal-content medium-modal">
+            <div class="modal-header">
+                <h2>Statistics</h2>
+                <button class="close-btn" onclick="hideModal('stats')">&times;</button>
+            </div>
+            <div class="modal-body" id="stats-body">
+                <!-- Injected via JS -->
+            </div>
+            <button class="game-btn mt-4" onclick="hideModal('stats')">Close</button>
+        </div>
+    </div>
+
+    <!-- Difficulty Modal -->
+    <div id="difficulty-modal" class="modal hidden">
+        <div class="modal-content small-modal">
+             <div class="modal-header">
+                <h2>Difficulty</h2>
+                <button class="close-btn" onclick="hideModal('difficulty')">&times;</button>
+            </div>
+            <div class="difficulty-options">
+                <button class="diff-btn" onclick="setDifficulty('Easy')">Easy</button>
+                <button class="diff-btn selected" onclick="setDifficulty('Medium')">Medium</button>
+                <button class="diff-btn" onclick="setDifficulty('Hard')">Hard</button>
+                <button class="diff-btn" onclick="setDifficulty('Extreme')">Extreme</button>
+            </div>
         </div>
     </div>
 
