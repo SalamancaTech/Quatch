@@ -2,19 +2,19 @@
 // --- Constants ---
 const SUITS = ['♠', '♥', '♣', '♦'];
 const VALUES = [
-    { rank: 2, display: '2' },
-    { rank: 3, display: '3' },
-    { rank: 4, display: '4' },
-    { rank: 5, display: '5' },
-    { rank: 6, display: '6' },
-    { rank: 7, display: '7' },
-    { rank: 8, display: '8' },
-    { rank: 9, display: '9' },
-    { rank: 10, display: '10' },
-    { rank: 11, display: 'J' },
-    { rank: 12, display: 'Q' },
-    { rank: 13, display: 'K' },
-    { rank: 14, display: 'A' }
+    { rank: 2, display: '2', value: 2 },
+    { rank: 3, display: '3', value: 3 },
+    { rank: 4, display: '4', value: 4 },
+    { rank: 5, display: '5', value: 5 },
+    { rank: 6, display: '6', value: 6 },
+    { rank: 7, display: '7', value: 7 },
+    { rank: 8, display: '8', value: 8 },
+    { rank: 9, display: '9', value: 9 },
+    { rank: 10, display: '10', value: 10 },
+    { rank: 11, display: 'J', value: 11 },
+    { rank: 12, display: 'Q', value: 12 },
+    { rank: 13, display: 'K', value: 13 },
+    { rank: 14, display: 'A', value: 14 }
 ];
 
 // --- Game State ---
@@ -24,21 +24,33 @@ const state = {
     bin: [],
     players: {
         human: {
-            hand: [],
-            lastStand: [], // The face-down cards
-            lastChance: [], // The face-up cards on top
-        },
-        ai: {
+            id: 0,
+            name: 'PLAYER',
             hand: [],
             lastStand: [],
             lastChance: [],
+            cardsEaten: 0
+        },
+        ai: {
+            id: 1,
+            name: 'OPPONENT',
+            hand: [],
+            lastStand: [],
+            lastChance: [],
+            cardsEaten: 0
         }
     },
     turn: null, // 'human' or 'ai'
-    stage: 0, // 0: Init, 1: Deal, 2: Swap, 3: PlayLoop, 4: EmptyHand, 5: LC, 6: LS
-    selectedCards: [], // Indices of selected cards in hand (or LC/LS if active)
-    selectedSource: 'hand', // 'hand', 'chance', 'stand'
-    message: ""
+    stage: 0, // 0: Init, 1: Deal, 2: Swap, 3: PlayLoop, 4: EmptyHand (implicit in PlayLoop), 5: LC, 6: LS
+    selectedCards: [], // Used for drag selection or multi-select
+    settings: {
+        difficulty: 'Medium', // Easy, Medium, Hard, Extreme
+        cheating: false
+    },
+    stats: {
+        startTime: 0,
+        turns: 0
+    }
 };
 
 // --- DOM Elements ---
@@ -52,10 +64,224 @@ const els = {
     deck: document.getElementById('deck-pile'),
     btn: document.getElementById('action-button'),
     msg: document.getElementById('message-display'),
-    modal: document.getElementById('game-modal'),
-    modalTitle: document.getElementById('modal-title'),
-    modalMsg: document.getElementById('modal-message'),
-    modalBtn: document.getElementById('modal-btn')
+
+    // Menu & Modals
+    menuBtn: document.getElementById('menu-btn'),
+    menuDropdown: document.getElementById('menu-dropdown'),
+    cheatToggle: document.getElementById('cheat-toggle'),
+
+    modals: {
+        generic: document.getElementById('game-modal'),
+        rules: document.getElementById('rules-modal'),
+        stats: document.getElementById('stats-modal'),
+        difficulty: document.getElementById('difficulty-modal')
+    },
+
+    modalElements: {
+        title: document.getElementById('modal-title'),
+        msg: document.getElementById('modal-message'),
+        btn: document.getElementById('modal-btn'),
+        statsBody: document.getElementById('stats-body')
+    }
+};
+
+// --- Animation System ---
+const animator = {
+    // Moves a clone of the card from Start to End
+    animateCard(card, startRect, endRect, callback) {
+        if (!startRect || !endRect) {
+            if (callback) callback();
+            return;
+        }
+
+        const el = document.createElement('div');
+        el.className = `card ${['♥','♦'].includes(card.suit) ? 'red' : 'black'}`;
+        el.innerHTML = `<div>${card.display}</div><div>${card.suit}</div>`;
+
+        // Initial Position
+        el.style.position = 'fixed';
+        el.style.left = `${startRect.left}px`;
+        el.style.top = `${startRect.top}px`;
+        el.style.width = `${startRect.width}px`;
+        el.style.height = `${startRect.height}px`;
+        el.style.zIndex = '9999';
+        el.style.transition = 'all 0.5s cubic-bezier(0.25, 0.8, 0.25, 1)';
+
+        document.body.appendChild(el);
+
+        // Force Reflow
+        el.getBoundingClientRect();
+
+        // End Position
+        el.style.left = `${endRect.left}px`;
+        el.style.top = `${endRect.top}px`;
+        el.style.width = `${endRect.width}px`;
+        el.style.height = `${endRect.height}px`;
+
+        setTimeout(() => {
+            el.remove();
+            if (callback) callback();
+        }, 500);
+    }
+};
+
+// --- Drag & Drop Controller ---
+const dragCtrl = {
+    active: false,
+    item: null, // { type: 'hand'|'chance', index: 0, card: {}, sourcePlayer: 'human' }
+    el: null, // The ghost element
+    startPos: { x: 0, y: 0 },
+    currentPos: { x: 0, y: 0 },
+
+    init() {
+        document.addEventListener('mousedown', this.handleStart.bind(this));
+        document.addEventListener('mousemove', this.handleMove.bind(this));
+        document.addEventListener('mouseup', this.handleEnd.bind(this));
+
+        document.addEventListener('touchstart', this.handleStart.bind(this), { passive: false });
+        document.addEventListener('touchmove', this.handleMove.bind(this), { passive: false });
+        document.addEventListener('touchend', this.handleEnd.bind(this));
+    },
+
+    handleStart(e) {
+        if (state.turn !== 'human' && state.stage !== 2) return; // Only human turn or swap
+
+        const target = e.target.closest('.card');
+        if (!target) return;
+
+        // Check if card is draggable (human hand or valid special card)
+        const isHand = target.parentElement.id === 'player-hand-container';
+        const isChance = target.classList.contains('last-chance-card') && target.closest('#player-special-cards');
+        const isStand = target.classList.contains('last-stand-card') && target.closest('#player-special-cards');
+        const isPile = target.closest('#center-pile');
+
+        if (!isHand && !isChance && !isStand && !isPile) return;
+
+        // Prevent default only if we started dragging a valid card
+        // e.preventDefault(); // Don't prevent default too early, might block scrolling if we implement it.
+
+        // Identify Card Data
+        let itemData = null;
+        if (isHand) {
+            const index = Array.from(els.humanHand.children).indexOf(target);
+            itemData = { type: 'hand', index, card: state.players.human.hand[index], source: 'hand' };
+        } else if (isChance) {
+             const slot = target.closest('.special-slot');
+             const index = Array.from(els.humanSpecial.children).indexOf(slot);
+             itemData = { type: 'chance', index, card: state.players.human.lastChance[index], source: 'chance' };
+        } else if (isStand) {
+             // Only draggable in specific stage/condition? Usually click.
+             // Mobile version supports dragging stand cards to play.
+             const slot = target.closest('.special-slot');
+             const index = Array.from(els.humanSpecial.children).indexOf(slot);
+             itemData = { type: 'stand', index, card: state.players.human.lastStand[index], source: 'stand' };
+        } else if (isPile) {
+            // Eating pile
+            if (state.pile.length === 0) return;
+            itemData = { type: 'pile', source: 'pile' };
+        }
+
+        if (!itemData) return;
+
+        // Start Drag
+        this.active = true;
+        this.item = itemData;
+        this.el = target.cloneNode(true);
+        this.el.classList.add('card-ghost');
+        this.el.classList.remove('hand-card'); // Remove positioning classes
+        this.el.style.margin = '0';
+
+        // Get touch/mouse coords
+        const point = e.touches ? e.touches[0] : e;
+        this.startPos = { x: point.clientX, y: point.clientY };
+        this.currentPos = { x: point.clientX, y: point.clientY };
+
+        // Position ghost
+        const rect = target.getBoundingClientRect();
+        this.el.style.left = `${rect.left}px`;
+        this.el.style.top = `${rect.top}px`;
+        this.el.style.width = `${rect.width}px`;
+        this.el.style.height = `${rect.height}px`;
+
+        document.body.appendChild(this.el);
+        target.classList.add('dragging');
+
+        // Vibration feedback
+        if (navigator.vibrate) navigator.vibrate(20);
+    },
+
+    handleMove(e) {
+        if (!this.active) return;
+        e.preventDefault(); // Prevent scrolling while dragging
+
+        const point = e.touches ? e.touches[0] : e;
+        const dx = point.clientX - this.startPos.x;
+        const dy = point.clientY - this.startPos.y;
+
+        this.el.style.transform = `translate(${dx}px, ${dy}px) scale(1.1)`;
+        this.el.style.zIndex = '9999';
+    },
+
+    handleEnd(e) {
+        if (!this.active) return;
+
+        this.active = false;
+
+        // Determine Drop Target
+        // We use document.elementFromPoint. For touch end, we need changedTouches.
+        const point = e.changedTouches ? e.changedTouches[0] : e;
+
+        // Temporarily hide ghost to see what's underneath
+        this.el.style.display = 'none';
+        let dropTarget = document.elementFromPoint(point.clientX, point.clientY);
+        this.el.style.display = 'block';
+
+        // Handle Logic based on Source -> Target
+        const source = this.item.source;
+
+        // --- 1. Play Card (Hand/Chance/Stand -> Pile) ---
+        if (dropTarget && dropTarget.closest('#center-pile')) {
+            if (source === 'hand' || source === 'chance' || source === 'stand') {
+                 handlePlayDrop(this.item);
+            }
+        }
+
+        // --- 2. Eat Pile (Pile -> Hand) ---
+        else if (dropTarget && (dropTarget.closest('#player-hand-container') || dropTarget.closest('#player-area'))) {
+            if (source === 'pile') {
+                handleEatDrop();
+            } else if (source === 'chance') {
+                 // Drag LC to Hand (Swap Phase)
+                 if (state.stage === 2) handleSwapDrop(this.item, null, 'hand');
+            }
+        }
+
+        // --- 3. Swap (Hand -> Chance / Chance -> Hand) ---
+        else if (dropTarget && dropTarget.closest('.special-slot') && state.stage === 2) {
+             const slot = dropTarget.closest('.special-slot');
+             const slotIndex = Array.from(els.humanSpecial.children).indexOf(slot);
+
+             if (source === 'hand') {
+                 handleSwapDrop(this.item, slotIndex, 'chance');
+             }
+        }
+
+        // Cleanup
+        this.el.remove();
+        const originalEl = this.getOriginalElement();
+        if (originalEl) originalEl.classList.remove('dragging');
+
+        this.item = null;
+        this.el = null;
+    },
+
+    getOriginalElement() {
+        if (!this.item) return null;
+        if (this.item.type === 'hand') return els.humanHand.children[this.item.index];
+        if (this.item.type === 'chance') return els.humanSpecial.children[this.item.index].querySelector('.last-chance-card');
+        if (this.item.type === 'stand') return els.humanSpecial.children[this.item.index].querySelector('.last-stand-card');
+        return null;
+    }
 };
 
 // --- Initialization ---
@@ -63,24 +289,54 @@ const els = {
 function initGame() {
     createDeck();
     shuffleDeck();
+
+    // Reset players
+    state.players.human.hand = [];
+    state.players.human.lastStand = [];
+    state.players.human.lastChance = [];
+    state.players.human.cardsEaten = 0;
+
+    state.players.ai.hand = [];
+    state.players.ai.lastStand = [];
+    state.players.ai.lastChance = [];
+    state.players.ai.cardsEaten = 0;
+
+    state.pile = [];
+    state.bin = [];
+    state.turn = null;
+    state.stats.turns = 0;
+    state.stats.startTime = Date.now();
+
     dealCards(); // Stage 1
     state.stage = 2; // Swap Stage
+
     updateUI();
-    showModal("Swap Phase", "You can swap cards between your Hand and your Face-Up (Last Chance) cards. Click a card in hand then a face-up card to swap. Click 'Start Game' when ready.");
+    showModal('generic', "Swap Phase", "Drag cards between your Hand and Last Chance slots to swap them. Click 'Start Game' when ready.");
+
+    els.btn.style.display = 'block';
     els.btn.innerText = "FINISH SWAP";
     els.btn.onclick = endSwapPhase;
+}
+
+function resetGame() {
+    hideMenu();
+    initGame();
 }
 
 function createDeck() {
     let fullDeck = [];
     for (let s of SUITS) {
         for (let v of VALUES) {
-            fullDeck.push({ suit: s, rank: v.rank, display: v.display, id: Math.random().toString(36).substr(2, 9) });
+            fullDeck.push({
+                suit: s,
+                rank: v.rank,
+                display: v.display,
+                value: v.value,
+                id: Math.random().toString(36).substr(2, 9)
+            });
         }
     }
 
-    // Filter 2s and 10s
-    // Keep 1 random 2 and 1 random 10
     const twos = fullDeck.filter(c => c.rank === 2);
     const tens = fullDeck.filter(c => c.rank === 10);
     const others = fullDeck.filter(c => c.rank !== 2 && c.rank !== 10);
@@ -99,415 +355,402 @@ function shuffleDeck() {
 }
 
 function dealCards() {
-    // Deal 3 Last Stand (Face Down) to each
+    // Deal 3 Last Stand (Face Down)
     for (let i=0; i<3; i++) {
-        state.players.human.lastStand.push(drawCard());
-        state.players.ai.lastStand.push(drawCard());
+        state.players.human.lastStand.push(state.deck.pop());
+        state.players.ai.lastStand.push(state.deck.pop());
     }
-    // Deal 3 Last Chance (Face Up) to each
+    // Deal 3 Last Chance (Face Up)
     for (let i=0; i<3; i++) {
-        state.players.human.lastChance.push(drawCard());
-        state.players.ai.lastChance.push(drawCard());
+        state.players.human.lastChance.push(state.deck.pop());
+        state.players.ai.lastChance.push(state.deck.pop());
     }
     // Deal 3 to Hand
     for (let i=0; i<3; i++) {
-        state.players.human.hand.push(drawCard());
-        state.players.ai.hand.push(drawCard());
+        state.players.human.hand.push(state.deck.pop());
+        state.players.ai.hand.push(state.deck.pop());
     }
+    sortHand('human');
+    sortHand('ai');
 }
 
-function drawCard() {
-    return state.deck.pop();
+function sortHand(playerKey) {
+    state.players[playerKey].hand.sort((a,b) => a.value - b.value);
 }
 
 function determineStartPlayer() {
-    // Player with lowest card starts.
-    // Check hands.
-    const getMinRank = (hand) => Math.min(...hand.map(c => c.rank));
+    const getMinRank = (hand) => {
+        // Exclude 2 and 10 from starting consideration?
+        // Rules: "The player with the lowest card starts". Usually 3 is lowest.
+        const playable = hand.filter(c => c.rank !== 2 && c.rank !== 10);
+        if (playable.length === 0) return 15; // High value
+        return Math.min(...playable.map(c => c.rank));
+    };
+
     const hMin = getMinRank(state.players.human.hand);
     const aMin = getMinRank(state.players.ai.hand);
 
     if (hMin < aMin) {
         state.turn = 'human';
-        showMessage("You start!");
+        showMessage("You start!", "green");
     } else if (aMin < hMin) {
         state.turn = 'ai';
-        showMessage("Opponent starts!");
+        showMessage("Opponent starts!", "red");
         setTimeout(aiTurn, 1000);
     } else {
         // Tie - Opponent starts
         state.turn = 'ai';
-        showMessage("Tie! Opponent starts.");
+        showMessage("Tie! Opponent starts.", "red");
         setTimeout(aiTurn, 1000);
     }
 }
 
-// --- Gameplay Logic ---
+// --- Gameplay Interactions (Called by DragController) ---
+
+function handleSwapDrop(item, targetIndex, targetType) {
+    if (state.stage !== 2) return;
+
+    const human = state.players.human;
+
+    if (item.source === 'hand' && targetType === 'chance') {
+        // Swap Hand Card <-> LC Card at targetIndex
+        const handCard = human.hand[item.index];
+        const lcCard = human.lastChance[targetIndex];
+
+        human.hand[item.index] = lcCard;
+        human.lastChance[targetIndex] = handCard;
+
+    } else if (item.source === 'chance' && targetType === 'hand') {
+        // Technically this is just moving it to hand.
+        // But in Swap Phase, "Hand" is a loose concept.
+        // If we drop LC onto Hand, we usually want to swap with *something* or just move it?
+        // Implementation: We won't support dragging LC -> Hand directly without a target card in this version for simplicity,
+        // UNLESS we want to support "Add to hand"? But hand size is fixed 3 dealt.
+        // Let's stick to: Drag Hand -> LC Slot swaps them.
+        // If user drags LC -> Hand Area, we do nothing or auto-swap with last hand card? Ambiguous.
+        showMessage("Drag Hand card to Slot to swap.");
+        return;
+    }
+
+    sortHand('human');
+    updateUI();
+}
 
 function endSwapPhase() {
+    // Ensure 3 cards in hand?
+    // Actually, user can put all cards in hand? No, slots are fixed.
+    // Logic assumes arrays are full.
+
     state.stage = 3;
-    els.btn.innerText = "PLAY SELECTED";
-    els.btn.onclick = playHumanTurn;
+    els.btn.style.display = 'none'; // Hide button for gameplay loop
+
     determineStartPlayer();
     updateUI();
 }
 
-function getActiveSource(playerKey) {
-    const p = state.players[playerKey];
-    if (p.hand.length > 0) return 'hand';
-    // If hand empty and deck empty (Stage 5/6 condition)
-    // Actually, can you enter Stage 5 if deck is not empty?
-    // "Stage 4: Once all cards from the Deck have been distributed... goal is to get rid of all cards in Hand"
-    // "Stage 5: ... successfully completed Stage 4" (Empty hand, empty deck).
-    if (state.deck.length > 0) return 'hand'; // Still cards to draw
-
-    // Hand empty, Deck empty
-    // Check Last Chance
-    if (p.lastChance.some(c => c !== null)) return 'chance';
-
-    // Check Last Stand
-    if (p.lastStand.some(c => c !== null)) return 'stand';
-
-    return 'done'; // Win?
-}
-
-function playHumanTurn() {
+function handlePlayDrop(item) {
     if (state.turn !== 'human') return;
 
-    const source = getActiveSource('human');
+    const source = item.source; // 'hand', 'chance', 'stand'
 
-    if (source === 'done') {
-        showModal("VICTORY", "You have won!");
+    // Validate Source Active
+    const activeSource = getActiveSource('human');
+    if (source !== activeSource) {
+        showMessage(`Must play from ${activeSource === 'chance' ? 'Last Chance' : activeSource === 'stand' ? 'Last Stand' : 'Hand'}!`);
         return;
     }
 
-    if (state.selectedCards.length === 0) {
-        // Check for pickup necessity
-        if (source === 'hand') {
-            const validMoves = getValidMoves(state.players.human.hand);
-            if (validMoves.length === 0) {
-                performPickup('human');
-                return;
-            } else {
-                showMessage("Select cards to play!");
-                return;
-            }
-        }
-        else if (source === 'chance') {
-             // Logic same as hand, but from LC
-             const cards = state.players.human.lastChance.filter(c => c !== null);
-             const validMoves = getValidMoves(cards);
-             if (validMoves.length === 0) {
-                 performPickup('human');
-                 return;
-             } else {
-                 showMessage("Select a Last Chance card!");
-                 return;
-             }
-        }
-        else if (source === 'stand') {
-            // Player must click a card blindly.
-            showMessage("Click a face-down card!");
-            return;
-        }
-    }
+    const card = item.card;
 
-    // Process Play
-    let cardsToPlay = [];
-    if (source === 'hand') {
-        cardsToPlay = state.selectedCards.map(idx => state.players.human.hand[idx]);
-    } else if (source === 'chance') {
-         cardsToPlay = state.selectedCards.map(idx => state.players.human.lastChance[idx]);
-    } else if (source === 'stand') {
-        // Blind play handled in click event directly?
-        // Or we select a blind card and click play?
-        // Let's assume select blind card -> Click Play.
-        const idx = state.selectedCards[0];
-        const card = state.players.human.lastStand[idx];
-
-        // Reveal
+    // Last Stand Blind Logic
+    if (source === 'stand') {
         showMessage(`Revealed: ${card.display}${card.suit}`);
 
         if (canBeatPile(card.rank)) {
-             cardsToPlay = [card];
-             // It's valid, continue to play logic
+             playCards([card], 'human', source, [item.index]);
         } else {
              // Failed LS
-             // Move card to hand (it becomes part of pickup?)
-             // "LS Event... Eat event will trigger... player cannot progress... until all cards cleared from Hand"
-             // So we pick up pile + the LS card.
-             state.players.human.lastStand[idx] = null; // Remove from stand
+             state.players.human.lastStand[item.index] = null; // Remove from stand
              state.players.human.hand.push(card); // Add to hand
              performPickup('human');
-             return;
         }
-    }
-
-    // Validation (Already did rank check in selection logic or assumed correct for single selection)
-    const firstRank = cardsToPlay[0].rank;
-    if (!cardsToPlay.every(c => c.rank === firstRank)) {
-        showMessage("Must play cards of same rank!");
         return;
     }
 
-    if (!canBeatPile(firstRank)) {
-        showMessage("Invalid Move!");
+    // Normal Validation
+    if (!canBeatPile(card.rank)) {
+        showMessage("Invalid Move!", "red");
+        // Animate snap back?
         return;
     }
 
-    // Execute Play
-    if (source === 'hand') {
-        moveCardsToPile(cardsToPlay, 'human');
-    } else if (source === 'chance') {
-        // Remove from specific slots
-        state.selectedCards.forEach(idx => {
-            state.players.human.lastChance[idx] = null;
-        });
-        state.pile.push(...cardsToPlay);
-    } else if (source === 'stand') {
-        const idx = state.selectedCards[0];
-        state.players.human.lastStand[idx] = null;
-        state.pile.push(cardsToPlay[0]);
-    }
+    // Play the card
+    // Note: We only support single card play via Drag for now.
+    // TODO: Multi-select then drag?
+    // Or auto-play duplicates? "If multiple cards of same value, ask?"
+    // User requested "Mimic mobile app". Mobile app drags stack if selected.
+    // For now, let's play the single dragged card.
+    // Advanced: Check for other cards of same rank in hand and ask/auto-play?
+    // Let's auto-play duplicates for convenience if setting enabled? No, sticking to core.
 
-    state.selectedCards = [];
-    replenishHand('human');
-
-    // Check Win Condition (Hand empty AND no more sources? OR just played last card?)
-    const remainingSource = getActiveSource('human');
-
-    // Check Events
-    const event = checkPileEvents();
-
-    // WIN CHECK:
-    // If player has NO cards left anywhere (source === 'done')
-    // AND the card played did NOT trigger Discard/Reset.
-    if (remainingSource === 'done') {
-        if (event === 'discard' || event === 'reset') {
-             // Illegal Win!
-             showMessage("Cannot win on Special Card! Pickup!");
-             performPickup('human');
-             return;
-        } else {
-             showModal("VICTORY", "You have won the game!");
-             state.turn = null;
-             return;
-        }
-    }
-
-    if (event === 'discard') {
-        clearPileToBin();
-        showMessage("Discard Event! Go again.");
-        updateUI();
-        return;
-    }
-
-    if (event === 'reset') {
-        showMessage("Reset! Go again.");
-        updateUI();
-        return;
-    }
-
-    // Pass turn
-    state.turn = 'ai';
-    updateUI();
-    setTimeout(aiTurn, 1000);
+    playCards([card], 'human', source, [item.index]);
 }
 
-function aiTurn() {
-    if (state.turn !== 'ai') return;
+function handleEatDrop() {
+    if (state.turn !== 'human') return;
+    if (state.pile.length === 0) return;
 
-    const source = getActiveSource('ai');
+    // Check if player has valid move
+    // "Eat - When the player ... doesn't have a card ... ALL cards ... into Hand"
+    // Usually only allowed if no valid move.
+    // "Game Rule: ... player ... IS ALLOWED to eat even if they have a move?"
+    // Mobile logic `handleMpaClick`: "If player has valid move... Prevent eating".
 
-    if (source === 'done') {
-        showModal("DEFEAT", "Opponent has won!");
+    const hasMove = playerHasValidMove('human');
+    if (hasMove) {
+        showMessage("You have a valid move!", "red");
         return;
     }
 
-    let cardsToPlay = null;
-
-    if (source === 'hand') {
-        const hand = state.players.ai.hand;
-        const groups = groupCards(hand);
-        const ranks = Object.keys(groups).map(Number).sort((a,b) => a - b);
-        for (let r of ranks) {
-            if (canBeatPile(r)) {
-                cardsToPlay = groups[r];
-                break;
-            }
-        }
-    } else if (source === 'chance') {
-        const cards = state.players.ai.lastChance.filter(c => c !== null);
-        const groups = groupCards(cards);
-        const ranks = Object.keys(groups).map(Number).sort((a,b) => a - b);
-         for (let r of ranks) {
-            if (canBeatPile(r)) {
-                cardsToPlay = groups[r];
-                break;
-            }
-        }
-    } else if (source === 'stand') {
-        // AI picks random blind card
-        const indices = state.players.ai.lastStand.map((c, i) => c ? i : -1).filter(i => i !== -1);
-        if (indices.length > 0) {
-            const pick = indices[Math.floor(Math.random() * indices.length)];
-            const card = state.players.ai.lastStand[pick];
-
-            // Reveal
-            showMessage(`Opponent revealed: ${card.display}${card.suit}`);
-             if (canBeatPile(card.rank)) {
-                cardsToPlay = [card];
-                // Remove from source map manually later
-                // Special handling for LS removal below
-                state.players.ai.lastStand[pick] = null;
-                state.pile.push(card);
-             } else {
-                 // Fail
-                 state.players.ai.lastStand[pick] = null;
-                 state.players.ai.hand.push(card);
-                 performPickup('ai');
-                 return;
-             }
-        }
-    }
-
-    if (cardsToPlay) {
-        if (source === 'hand') {
-            moveCardsToPile(cardsToPlay, 'ai');
-        } else if (source === 'chance') {
-             // Find indices to remove (since we grouped by value, need to find instances)
-             // Simple way: iterate backwards through array slots
-             cardsToPlay.forEach(c => {
-                 const idx = state.players.ai.lastChance.indexOf(c);
-                 if (idx !== -1) state.players.ai.lastChance[idx] = null;
-             });
-             state.pile.push(...cardsToPlay);
-        }
-        // Stand already handled
-
-        replenishHand('ai');
-
-        // Win Check
-        if (getActiveSource('ai') === 'done') {
-             const evt = checkPileEvents();
-             if (evt === 'discard' || evt === 'reset') {
-                 showMessage("Opponent invalid win! Pickup.");
-                 performPickup('ai');
-                 return;
-             } else {
-                 showModal("DEFEAT", "Opponent has won!");
-                 state.turn = null;
-                 return;
-             }
-        }
-
-        const event = checkPileEvents();
-        if (event === 'discard' || event === 'reset') {
-            updateUI();
-            setTimeout(aiTurn, 1000);
-            return;
-        }
-
-        state.turn = 'human';
-        updateUI();
-    } else {
-        performPickup('ai');
-    }
+    performPickup('human');
 }
 
-function groupCards(list) {
-    const groups = {};
-    list.forEach(c => {
-        if (!groups[c.rank]) groups[c.rank] = [];
-        groups[c.rank].push(c);
-    });
-    return groups;
+// --- Core Game Logic ---
+
+function getActiveSource(playerKey) {
+    const p = state.players[playerKey];
+    if (p.hand.length > 0) return 'hand';
+    if (state.deck.length > 0) return 'hand';
+    if (p.lastChance.some(c => c !== null)) return 'chance';
+    if (p.lastStand.some(c => c !== null)) return 'stand';
+    return 'done';
 }
 
 function canBeatPile(rank) {
-    // 2 beats anything
-    if (rank === 2) return true;
-
-    // If pile empty, anything goes
+    if (rank === 2 || rank === 10) return true; // Special cards always playable
     if (state.pile.length === 0) return true;
 
     const topCard = state.pile[state.pile.length - 1];
-    const topRank = topCard.rank;
+    if (topCard.rank === 2) return true; // 2 resets value to 0
 
-    // If top is 2, anything goes (Reset Event logic handles clearing, but if a 2 sits there...
-    // Actually, "If a 2 is ever played it will trigger the Reset Event".
-    // Meaning the next player can play anything.
-    // Usually 2 clears the pile or resets value requirement.
-    // Rules: "Reset Event - any card may be played next".
-    // So if top is 2, effectively pile value is 0.
-    if (topRank === 2) return true;
-
-    return rank >= topRank;
+    return rank >= topCard.rank;
 }
 
-function checkPileEvents() {
-    if (state.pile.length === 0) return null;
+function playerHasValidMove(playerKey) {
+    const p = state.players[playerKey];
+    const source = getActiveSource(playerKey);
+    let cards = [];
 
-    const topCard = state.pile[state.pile.length - 1];
+    if (source === 'hand') cards = p.hand;
+    else if (source === 'chance') cards = p.lastChance.filter(c => c);
+    else if (source === 'stand') return true; // Blind play is always "valid attempt"
 
-    // 10 -> Discard
-    if (topCard.rank === 10) return 'discard';
+    return cards.some(c => canBeatPile(c.rank));
+}
 
-    // 2 -> Reset
-    if (topCard.rank === 2) return 'reset';
-
-    // 4 of a kind
-    // Check last 4 cards
-    if (state.pile.length >= 4) {
-        const last4 = state.pile.slice(-4);
-        const r = last4[0].rank;
-        if (last4.every(c => c.rank === r)) return 'discard';
+function playCards(cards, playerKey, source, indices) {
+    // Remove from source
+    if (source === 'hand') {
+        state.players[playerKey].hand = state.players[playerKey].hand.filter(c => !cards.includes(c));
+    } else if (source === 'chance') {
+        indices.forEach(idx => state.players[playerKey].lastChance[idx] = null);
+    } else if (source === 'stand') {
+        indices.forEach(idx => state.players[playerKey].lastStand[idx] = null);
     }
 
-    return null;
-}
-
-function moveCardsToPile(cards, playerKey) {
-    // Remove from hand
-    state.players[playerKey].hand = state.players[playerKey].hand.filter(c => !cards.includes(c));
     // Add to pile
     state.pile.push(...cards);
-}
+    state.stats.turns++;
 
-function clearPileToBin() {
-    state.bin.push(...state.pile);
-    state.pile = [];
-}
+    const topRank = cards[0].rank;
+    let event = null;
 
-function performPickup(playerKey) {
-    showMessage(`${playerKey === 'human' ? "You" : "Opponent"} picked up!`);
+    if (topRank === 10) event = 'clear';
+    else if (topRank === 2) event = 'reset';
+    else if (state.pile.length >= 4) {
+        const last4 = state.pile.slice(-4);
+        if (last4.every(c => c.rank === topRank)) event = 'clear';
+    }
 
-    // Move pile to hand
-    state.players[playerKey].hand.push(...state.pile);
-    state.pile = [];
+    replenishHand(playerKey);
+    updateUI();
 
-    // Sort hand for UX
-    state.players[playerKey].hand.sort((a,b) => a.rank - b.rank);
+    // Check Win
+    if (getActiveSource(playerKey) === 'done') {
+        if (event === 'clear' || event === 'reset') {
+             // Illegal win
+             showMessage("Cannot win on Special Card!", "red");
+             performPickup(playerKey);
+             return;
+        } else {
+             showModal('generic', "GAME OVER", `${playerKey === 'human' ? 'You' : 'Opponent'} Won!`);
+             return;
+        }
+    }
 
-    // Turn passes to NEXT player usually?
-    // Rules: "Eat - ... then the next player gets to lay down".
-    // So if I eat, Opponent plays.
+    if (event === 'clear' || event === 'reset') {
+        showMessage(event === 'clear' ? "CLEARED!" : "RESET!", "yellow");
+        if (event === 'clear') {
+            state.bin.push(...state.pile);
+            state.pile = [];
+            updateUI();
+            if (playerKey === 'ai') setTimeout(aiTurn, 1000);
+            return;
+        }
+    }
+
+    // Switch Turn
     state.turn = playerKey === 'human' ? 'ai' : 'human';
     updateUI();
 
     if (state.turn === 'ai') setTimeout(aiTurn, 1000);
 }
 
-function replenishHand(playerKey) {
-    // Stage 4 Rule: "Once all cards from Deck distributed... no longer need to have minimum of 3"
-    if (state.deck.length === 0) return;
+function performPickup(playerKey) {
+    // Capture Pile Rect for animation start (before we clear it)
+    const pileRect = els.pile.getBoundingClientRect();
+    const targetRect = playerKey === 'human'
+        ? els.humanHand.getBoundingClientRect()
+        : els.aiHandCount.parentElement.getBoundingClientRect();
 
-    while (state.players[playerKey].hand.length < 3 && state.deck.length > 0) {
-        state.players[playerKey].hand.push(drawCard());
-    }
-    // Sort hand
-    state.players[playerKey].hand.sort((a,b) => a.rank - b.rank);
+    // Trigger Animation for top 3 cards
+    const cardsToAnimate = state.pile.slice(-3);
+    cardsToAnimate.forEach((card, i) => {
+        setTimeout(() => {
+            animator.animateCard(card, pileRect, targetRect);
+        }, i * 50);
+    });
+
+    showMessage(`${playerKey === 'human' ? "You" : "Opponent"} ate the pile!`);
+
+    // Add pile to hand
+    state.players[playerKey].hand.push(...state.pile);
+    state.players[playerKey].cardsEaten += state.pile.length;
+    state.pile = [];
+
+    sortHand(playerKey);
+
+    state.turn = playerKey === 'human' ? 'ai' : 'human'; // Next player's turn
+    updateUI();
+
+    if (state.turn === 'ai') setTimeout(aiTurn, 1000);
 }
+
+function replenishHand(playerKey) {
+    while (state.players[playerKey].hand.length < 3 && state.deck.length > 0) {
+        state.players[playerKey].hand.push(state.deck.pop());
+    }
+    sortHand(playerKey);
+}
+
+// --- AI Logic (Ported/Simplified) ---
+
+function aiTurn() {
+    if (state.turn !== 'ai') return;
+
+    const source = getActiveSource('ai');
+    const p = state.players.ai;
+    const diff = state.settings.difficulty;
+
+    if (source === 'done') {
+        showModal('generic', "GAME OVER", "Opponent Won!");
+        return;
+    }
+
+    let play = [];
+    let indices = [];
+    let startRect = els.aiHandCount.parentElement.getBoundingClientRect(); // Default start
+
+    if (source === 'stand') {
+        // Random pick
+        const validIndices = p.lastStand.map((c, i) => c ? i : -1).filter(i => i !== -1);
+        const pick = validIndices[Math.floor(Math.random() * validIndices.length)];
+        const card = p.lastStand[pick];
+        const slotEl = els.aiSpecial.children[pick];
+        if (slotEl) startRect = slotEl.getBoundingClientRect();
+
+        showMessage(`Opponent plays blind...`);
+        if (canBeatPile(card.rank)) {
+            play = [card];
+            indices = [pick];
+        } else {
+            // Fail
+            showMessage(`Opponent revealed ${card.display}, failed!`);
+            p.lastStand[pick] = null;
+            p.hand.push(card);
+            performPickup('ai');
+            return;
+        }
+    } else {
+        // Logic for Hand/Chance
+        let cards = source === 'hand' ? p.hand : p.lastChance.filter(c => c);
+
+        // Group by rank
+        const groups = {};
+        cards.forEach(c => {
+            if (!groups[c.rank]) groups[c.rank] = [];
+            groups[c.rank].push(c);
+        });
+
+        // Filter playable groups
+        let playableGroups = Object.values(groups).filter(g => canBeatPile(g[0].rank));
+
+        if (playableGroups.length === 0) {
+            performPickup('ai');
+            return;
+        }
+
+        // Difficulty Selection
+        // Sort by value
+        playableGroups.sort((a,b) => a[0].value - b[0].value);
+
+        let selectedGroup = null;
+
+        if (diff === 'Easy') {
+            selectedGroup = playableGroups[0]; // Lowest value
+        } else {
+            // Medium/Hard: Try to save high cards, but play high if pile is big?
+            // Simple Medium logic: Play lowest valid. If have 2 or 10, save them unless necessary?
+            const special = playableGroups.filter(g => g[0].rank === 2 || g[0].rank === 10);
+            const normal = playableGroups.filter(g => g[0].rank !== 2 && g[0].rank !== 10);
+
+            if (normal.length > 0) {
+                selectedGroup = normal[0];
+            } else {
+                selectedGroup = special[0];
+            }
+        }
+
+        play = selectedGroup;
+
+        // Find indices if from Chance
+        if (source === 'chance') {
+             play.forEach(c => {
+                 const idx = p.lastChance.indexOf(c);
+                 if (idx !== -1) indices.push(idx);
+             });
+             // Set startRect based on first card
+             const firstIdx = p.lastChance.indexOf(play[0]);
+             if (firstIdx !== -1 && els.aiSpecial.children[firstIdx]) {
+                 startRect = els.aiSpecial.children[firstIdx].getBoundingClientRect();
+             }
+        }
+    }
+
+    // Animation
+    const endRect = els.pile.getBoundingClientRect();
+    play.forEach((c, i) => {
+        setTimeout(() => {
+            animator.animateCard(c, startRect, endRect);
+        }, i * 50);
+    });
+
+    // Wait for animation before updating logic
+    setTimeout(() => {
+        playCards(play, 'ai', source, indices);
+    }, 600);
+}
+
 
 // --- UI Rendering ---
 
@@ -516,16 +759,25 @@ function updateUI() {
     renderDeckBin();
     renderOpponent();
     renderPlayer();
-    updateButton();
+
+    // Cheating: Show opponent cards if enabled
+    if (state.settings.cheating) {
+        document.querySelectorAll('.opponent-hidden-card').forEach(el => {
+            el.classList.add('revealed');
+            // We need to inject text if not there.
+            // Simplified: Hand count text is there. Stand is face down.
+        });
+    }
 }
 
 function renderPile() {
     els.pile.innerHTML = '';
-    if (state.pile.length === 0) return;
-
-    const topCard = state.pile[state.pile.length - 1];
-    const cardEl = createCardEl(topCard);
-    els.pile.appendChild(cardEl);
+    state.pile.forEach((card, i) => {
+        const el = createCardEl(card);
+        // Stacking effect
+        el.style.transform = `translate(${i*2}px, ${-i*2}px)`;
+        els.pile.appendChild(el);
+    });
 }
 
 function renderDeckBin() {
@@ -533,9 +785,8 @@ function renderDeckBin() {
 
     els.bin.innerHTML = '';
     if (state.bin.length > 0) {
-        const topBin = state.bin[state.bin.length - 1];
-        const cardEl = createCardEl(topBin);
-        els.bin.appendChild(cardEl);
+        const top = state.bin[state.bin.length - 1];
+        els.bin.appendChild(createCardEl(top));
     }
 }
 
@@ -543,126 +794,86 @@ function renderOpponent() {
     els.aiHandCount.innerText = state.players.ai.hand.length;
 
     els.aiSpecial.innerHTML = '';
-
     for (let i=0; i<3; i++) {
         const slot = document.createElement('div');
         slot.className = 'special-slot';
 
-        // Last Stand (Face Down)
+        // Stand
         if (state.players.ai.lastStand[i]) {
-            const lsCard = document.createElement('div');
-            lsCard.className = 'card card-back last-stand-card';
-            lsCard.style.width = '100%'; lsCard.style.height = '100%';
-            slot.appendChild(lsCard);
+            const card = document.createElement('div');
+            card.className = 'card card-back last-stand-card opponent-hidden-card';
+            if (state.settings.cheating) {
+                const c = state.players.ai.lastStand[i];
+                card.innerHTML = `<div style="color:white; font-size:10px">${c.display}${c.suit}</div>`;
+            }
+            slot.appendChild(card);
         }
 
-        // Last Chance (Face Up)
+        // Chance
         if (state.players.ai.lastChance[i]) {
-            const lcCard = createCardEl(state.players.ai.lastChance[i]);
-            lcCard.classList.add('last-chance-card');
-            slot.appendChild(lcCard);
+            const c = state.players.ai.lastChance[i];
+            const el = createCardEl(c);
+            el.classList.add('last-chance-card');
+            slot.appendChild(el);
         }
-
         els.aiSpecial.appendChild(slot);
     }
 }
 
 function renderPlayer() {
     els.humanSpecial.innerHTML = '';
-    const activeSource = getActiveSource('human');
-
     for (let i=0; i<3; i++) {
         const slot = document.createElement('div');
         slot.className = 'special-slot';
 
-        // Last Stand
+        // Stand
         if (state.players.human.lastStand[i]) {
-            const lsCard = document.createElement('div');
-            lsCard.className = 'card card-back last-stand-card';
-            lsCard.style.width = '100%'; lsCard.style.height = '100%';
-
-            // Interaction: Only in Stage 6 (Stand is source)
-            if (activeSource === 'stand' && !state.players.human.lastChance[i] && state.turn === 'human') {
-                 lsCard.style.cursor = 'pointer';
-                 lsCard.style.border = '2px solid yellow';
-                 if (state.selectedCards.includes(i)) {
-                     lsCard.style.transform = 'scale(1.1)';
-                 }
-                 lsCard.onclick = () => handleSpecialClick(i, 'stand');
-            }
-
-            slot.appendChild(lsCard);
+            const card = document.createElement('div');
+            card.className = 'card card-back last-stand-card';
+            slot.appendChild(card);
         }
 
-        // Last Chance
+        // Chance
         if (state.players.human.lastChance[i]) {
-            const lcCard = createCardEl(state.players.human.lastChance[i]);
-            lcCard.classList.add('last-chance-card');
-
-            // Interaction for Swap Phase
-            if (state.stage === 2) {
-                lcCard.onclick = () => handleSwapClick(i, 'chance');
-            }
-            // Interaction for Stage 5 (Chance is source)
-            else if (activeSource === 'chance' && state.turn === 'human') {
-                lcCard.style.cursor = 'pointer';
-                if (state.selectedCards.includes(i)) {
-                    lcCard.classList.add('selected');
-                }
-                lcCard.onclick = () => handleSpecialClick(i, 'chance');
-            }
-
-            slot.appendChild(lcCard);
+            const el = createCardEl(state.players.human.lastChance[i]);
+            el.classList.add('last-chance-card');
+            slot.appendChild(el);
         }
 
         els.humanSpecial.appendChild(slot);
     }
 
-    // Hand
+    // Hand Rendering with Overlap Logic
     els.humanHand.innerHTML = '';
     const hand = state.players.human.hand;
+    const containerWidth = els.humanHand.clientWidth - 20; // Subtract padding
+    const cardWidth = 60; // Assuming 60px card width
 
-    // Dynamic Spacing Calculation
-    let margin = -5; // Default small overlap
-    if (hand.length > 1) {
-        const containerWidth = els.humanHand.offsetWidth || 300; // Fallback
-        const cardWidth = 60; // From CSS
-        const totalWidthNeeded = cardWidth * hand.length; // No overlap width
+    // Calculate overlap
+    let marginLeft = 0;
+    const totalWidthNeeded = hand.length * cardWidth;
 
-        // We want: cardWidth + (N-1) * (cardWidth + margin) <= containerWidth
-        // (N-1)*(cardWidth+margin) <= containerWidth - cardWidth
-        // cardWidth+margin <= (containerWidth - cardWidth) / (N-1)
-        // margin <= ((containerWidth - cardWidth) / (N-1)) - cardWidth
-
-        const maxMargin = ((containerWidth - cardWidth) / (hand.length - 1)) - cardWidth;
-        // Cap margin at -5 (standard overlap) or whatever maxMargin is if it needs to be tighter (more negative)
-        // Actually, we usually want at least some overlap or spacing.
-        // If maxMargin is positive (plenty of space), we cap it at say 5px.
-        // If maxMargin is negative (needs squeeze), we use it.
-
-        margin = Math.min(5, maxMargin);
+    if (totalWidthNeeded > containerWidth && hand.length > 1) {
+        // We need to overlap.
+        // Available space for n-1 cards is (containerWidth - cardWidth)
+        // Space per card = (containerWidth - cardWidth) / (n - 1)
+        // Margin left = Space per card - cardWidth
+        const spacePerCard = (containerWidth - cardWidth) / (hand.length - 1);
+        marginLeft = spacePerCard - cardWidth;
     }
 
-    hand.forEach((card, idx) => {
-        const cardEl = createCardEl(card);
-        cardEl.className += ' hand-card';
-        cardEl.style.marginLeft = idx === 0 ? '0' : `${margin}px`;
+    hand.forEach((card, i) => {
+        const el = createCardEl(card);
+        el.classList.add('hand-card');
 
-        // Ensure z-index follows order so hover works nicely
-        cardEl.style.zIndex = idx;
-
-        if (activeSource === 'hand' && state.selectedCards.includes(idx)) {
-            cardEl.classList.add('selected');
+        if (i > 0) {
+            el.style.marginLeft = `${marginLeft}px`;
         }
 
-        // Disable clicks if not active source or not turn
-        if (state.turn === 'human' && (activeSource === 'hand' || state.stage === 2)) {
-            cardEl.onclick = () => handleHandClick(idx);
-        } else {
-             cardEl.style.opacity = '0.7';
-        }
+        // Ensure proper z-index for hovering/interaction
+        el.style.zIndex = i;
 
-        els.humanHand.appendChild(cardEl);
+        els.humanHand.appendChild(el);
     });
 }
 
@@ -673,143 +884,89 @@ function createCardEl(card) {
     return el;
 }
 
-function updateButton() {
-    if (state.stage === 2) {
-        els.btn.innerText = "FINISH SWAP";
-        els.btn.disabled = false;
-        return;
-    }
-
-    if (state.turn === 'human') {
-        const source = getActiveSource('human');
-
-        if (source === 'hand') {
-            const validMoves = getValidMoves(state.players.human.hand);
-            if (validMoves.length === 0) {
-                els.btn.innerText = "PICK UP";
-            } else {
-                els.btn.innerText = "PLAY SELECTED";
-            }
-        } else if (source === 'chance') {
-             const validMoves = getValidMoves(state.players.human.lastChance.filter(c => c));
-             if (validMoves.length === 0) {
-                 els.btn.innerText = "PICK UP";
-             } else {
-                 els.btn.innerText = "PLAY SELECTED";
-             }
-        } else if (source === 'stand') {
-            els.btn.innerText = "PLAY BLIND CARD";
-        }
-
-        els.btn.disabled = false;
-    } else {
-        els.btn.innerText = "OPPONENT TURN";
-        els.btn.disabled = true;
-    }
-}
-
-// --- Interactions ---
-
-function handleHandClick(idx) {
-    if (state.stage === 2) {
-        if (state.selectedCards.includes(idx)) state.selectedCards = [];
-        else state.selectedCards = [idx];
-        renderPlayer();
-        return;
-    }
-
-    if (state.turn !== 'human') return;
-    if (getActiveSource('human') !== 'hand') return;
-
-    // Toggle
-    if (state.selectedCards.includes(idx)) {
-        state.selectedCards = state.selectedCards.filter(i => i !== idx);
-    } else {
-        // Can only select same rank
-        const card = state.players.human.hand[idx];
-        if (state.selectedCards.length > 0) {
-            const first = state.players.human.hand[state.selectedCards[0]];
-            if (first.rank !== card.rank) {
-                state.selectedCards = [idx];
-            } else {
-                state.selectedCards.push(idx);
-            }
-        } else {
-            state.selectedCards.push(idx);
-        }
-    }
-    renderPlayer();
-}
-
-function handleSpecialClick(idx, type) {
-    if (state.turn !== 'human') return;
-
-    // Only allow selection if correct source
-    if (getActiveSource('human') !== type) return;
-
-    if (type === 'stand') {
-        // Only 1 at a time for Stand
-        state.selectedCards = [idx];
-        renderPlayer();
-        return;
-    }
-
-    if (type === 'chance') {
-         // Same rank logic
-        const card = state.players.human.lastChance[idx];
-        if (state.selectedCards.includes(idx)) {
-            state.selectedCards = state.selectedCards.filter(i => i !== idx);
-        } else {
-             if (state.selectedCards.length > 0) {
-                 const firstIdx = state.selectedCards[0];
-                 const first = state.players.human.lastChance[firstIdx];
-                 if (first.rank !== card.rank) {
-                     state.selectedCards = [idx];
-                 } else {
-                     state.selectedCards.push(idx);
-                 }
-             } else {
-                 state.selectedCards = [idx];
-             }
-        }
-        renderPlayer();
-    }
-}
-
-function handleSwapClick(slotIdx, type) {
-    if (state.stage !== 2) return;
-    if (state.selectedCards.length !== 1) return;
-
-    const handIdx = state.selectedCards[0];
-    const handCard = state.players.human.hand[handIdx];
-    const specialCard = state.players.human.lastChance[slotIdx];
-
-    // Swap
-    state.players.human.hand[handIdx] = specialCard;
-    state.players.human.lastChance[slotIdx] = handCard;
-    state.selectedCards = [];
-
-    renderPlayer();
-}
-
-function showMessage(msg) {
-    els.msg.innerText = msg;
-    els.msg.style.display = 'block';
+function showMessage(text, color='white') {
+    els.msg.innerText = text;
+    els.msg.style.color = color;
+    els.msg.classList.add('visible');
     setTimeout(() => {
-        els.msg.style.display = 'none';
-    }, 2000);
+        els.msg.classList.remove('visible');
+    }, 1500);
 }
 
-function showModal(title, msg) {
-    els.modalTitle.innerText = title;
-    els.modalMsg.innerText = msg;
-    els.modal.classList.remove('hidden');
-    els.modalBtn.onclick = () => els.modal.classList.add('hidden');
+// --- Menu & Modals ---
+
+els.menuBtn.onclick = (e) => {
+    e.stopPropagation(); // Prevent global click from immediately closing it
+    els.menuDropdown.classList.toggle('hidden');
+};
+
+// Global click to close menu
+document.addEventListener('click', (e) => {
+    if (!els.menuDropdown.classList.contains('hidden')) {
+        if (!els.menuDropdown.contains(e.target) && e.target !== els.menuBtn) {
+            hideMenu();
+        }
+    }
+});
+
+els.cheatToggle.onclick = () => {
+    state.settings.cheating = !state.settings.cheating;
+    els.cheatToggle.classList.toggle('active');
+    updateUI();
+};
+
+function showModal(type, title, message) {
+    hideMenu();
+    Object.values(els.modals).forEach(m => m.classList.add('hidden'));
+
+    if (type === 'generic') {
+        els.modalElements.title.innerText = title;
+        els.modalElements.msg.innerText = message;
+        els.modals.generic.classList.remove('hidden');
+        els.modalElements.btn.onclick = () => els.modals.generic.classList.add('hidden');
+    } else if (type === 'stats') {
+        renderStats();
+        els.modals.stats.classList.remove('hidden');
+    } else {
+        els.modals[type].classList.remove('hidden');
+    }
 }
 
-function getValidMoves(hand) {
-    return hand.filter(c => canBeatPile(c.rank));
+function hideModal(type) {
+    els.modals[type].classList.add('hidden');
 }
 
-// Start
-els.btn.onclick = initGame;
+function hideMenu() {
+    els.menuDropdown.classList.add('hidden');
+}
+
+function setDifficulty(level) {
+    state.settings.difficulty = level;
+    document.querySelectorAll('.diff-btn').forEach(b => {
+        b.classList.remove('selected');
+        if (b.innerText === level) b.classList.add('selected');
+    });
+    hideModal('difficulty');
+}
+
+function renderStats() {
+    const s = state.stats;
+    const time = Math.floor((Date.now() - s.startTime) / 1000);
+    const mins = Math.floor(time / 60);
+    const secs = time % 60;
+
+    els.modalElements.statsBody.innerHTML = `
+        <div class="stat-row"><span class="text-yellow">Time Played</span><span>${mins}:${secs < 10 ? '0'+secs : secs}</span></div>
+        <div class="stat-row"><span class="text-yellow">Turns</span><span>${s.turns}</span></div>
+        <div class="stat-row"><span class="text-yellow">Difficulty</span><span>${state.settings.difficulty}</span></div>
+        <br>
+        <div class="stat-header">YOU</div>
+        <div class="stat-row"><span>Cards Eaten</span><span>${state.players.human.cardsEaten}</span></div>
+        <div class="stat-header">OPPONENT</div>
+        <div class="stat-row"><span>Cards Eaten</span><span>${state.players.ai.cardsEaten}</span></div>
+    `;
+}
+
+// --- Start ---
+dragCtrl.init();
+initGame();
