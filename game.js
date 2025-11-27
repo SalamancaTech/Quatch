@@ -356,6 +356,33 @@ function resetGame() {
     updateUI();
 }
 
+function resetGame() {
+    hideMenu();
+    // Return to start screen
+    els.menuBtn.classList.add('hidden');
+    els.startScreen.classList.remove('hidden');
+
+    // Clear State entirely
+    state.pile = [];
+    state.bin = [];
+    state.deck = [];
+    state.turn = null;
+    state.stage = 0;
+
+    state.players.human.hand = [];
+    state.players.ai.hand = [];
+    state.players.human.lastChance = [];
+    state.players.ai.lastChance = [];
+    state.players.human.lastStand = [];
+    state.players.ai.lastStand = [];
+    state.players.human.cardsEaten = 0;
+    state.players.ai.cardsEaten = 0;
+    state.stats.startTime = 0;
+    state.stats.turns = 0;
+
+    updateUI();
+}
+
 function createDeck() {
     let fullDeck = [];
     for (let s of SUITS) {
