@@ -843,12 +843,36 @@ function renderPlayer() {
         els.humanSpecial.appendChild(slot);
     }
 
+    // Hand Rendering with Overlap Logic
     els.humanHand.innerHTML = '';
-    state.players.human.hand.forEach((card, i) => {
+    const hand = state.players.human.hand;
+    const containerWidth = els.humanHand.clientWidth - 20; // Subtract padding
+    const cardWidth = 60; // Assuming 60px card width
+
+    // Calculate overlap
+    let marginLeft = 0;
+    const totalWidthNeeded = hand.length * cardWidth;
+
+    if (totalWidthNeeded > containerWidth && hand.length > 1) {
+        // We need to overlap.
+        // Available space for n-1 cards is (containerWidth - cardWidth)
+        // Space per card = (containerWidth - cardWidth) / (n - 1)
+        // Margin left = Space per card - cardWidth
+        const spacePerCard = (containerWidth - cardWidth) / (hand.length - 1);
+        marginLeft = spacePerCard - cardWidth;
+    }
+
+    hand.forEach((card, i) => {
         const el = createCardEl(card);
         el.classList.add('hand-card');
-        // Fan effect could be added here
-        // el.style.transform = `rotate(${(i - state.players.human.hand.length/2) * 5}deg)`;
+
+        if (i > 0) {
+            el.style.marginLeft = `${marginLeft}px`;
+        }
+
+        // Ensure proper z-index for hovering/interaction
+        el.style.zIndex = i;
+
         els.humanHand.appendChild(el);
     });
 }
