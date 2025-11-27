@@ -123,6 +123,13 @@ body {
     align-items: center;
 }
 
+/* Ensure Opponent Hand Container doesn't force full width/centering on its own */
+#opponent-hand-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
 #opponent-card-count {
     color: var(--color-yellow);
     font-size: 2rem;
@@ -165,9 +172,13 @@ body {
 #opponent-special-cards, #player-special-cards {
     display: flex;
     gap: 5px;
-    margin: 10px 0;
+    margin: 0; /* Remove vertical margin for opponent side-by-side */
     min-height: var(--card-height);
     justify-content: center;
+}
+
+#player-special-cards {
+    margin: 10px 0; /* Keep margin for player */
 }
 
 .special-slot {
@@ -196,6 +207,7 @@ body {
     border: 2px solid black; /* As requested in prompt notes */
     display: flex;
     align-items: center;
+    justify-content: center; /* Center the hand */
     padding: 0 10px;
     margin-bottom: 10px;
     position: relative;
@@ -284,4 +296,14 @@ body {
     #game-container {
         max-width: 450px; /* Force portrait width on Desktop */
     }
+}
+
+/* Wrapper for Opponent Side-by-Side Layout */
+#opponent-cards-wrapper {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 20px; /* Space between Hand and Special Cards */
+    width: 100%;
 }
