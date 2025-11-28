@@ -131,6 +131,7 @@ const dragCtrl = {
     active: false,
     item: null, // { type: 'hand'|'chance', index: 0, card: {}, sourcePlayer: 'human' }
     el: null, // The ghost element
+    placeholder: null, // The placeholder element in hand
     startPos: { x: 0, y: 0 },
     currentPos: { x: 0, y: 0 },
 
@@ -158,9 +159,6 @@ const dragCtrl = {
 
         if (!isHand && !isChance && !isStand && !isPile) return;
 
-        // Prevent default only if we started dragging a valid card
-        // e.preventDefault(); // Don't prevent default too early, might block scrolling if we implement it.
-
         // Identify Card Data
         let itemData = null;
         if (isHand) {
@@ -171,8 +169,6 @@ const dragCtrl = {
              const index = Array.from(els.humanSpecial.children).indexOf(slot);
              itemData = { type: 'chance', index, card: state.players.human.lastChance[index], source: 'chance' };
         } else if (isStand) {
-             // Only draggable in specific stage/condition? Usually click.
-             // Mobile version supports dragging stand cards to play.
              const slot = target.closest('.special-slot');
              const index = Array.from(els.humanSpecial.children).indexOf(slot);
              itemData = { type: 'stand', index, card: state.players.human.lastStand[index], source: 'stand' };
@@ -207,8 +203,28 @@ const dragCtrl = {
         document.body.appendChild(this.el);
         target.classList.add('dragging');
 
+        // Hand Drag Specifics: Create placeholder immediately
+        if (isHand) {
+            this.createPlaceholder(itemData.index);
+            // Hide original immediately
+            target.style.display = 'none';
+        }
+
         // Vibration feedback
         if (navigator.vibrate) navigator.vibrate(20);
+    },
+
+    createPlaceholder(index) {
+        if (this.placeholder) this.placeholder.remove();
+        this.placeholder = document.createElement('div');
+        this.placeholder.className = 'card-placeholder';
+
+        // Insert at index
+        if (index >= els.humanHand.children.length) {
+            els.humanHand.appendChild(this.placeholder);
+        } else {
+            els.humanHand.insertBefore(this.placeholder, els.humanHand.children[index]);
+        }
     },
 
     handleMove(e) {
@@ -221,6 +237,99 @@ const dragCtrl = {
 
         this.el.style.transform = `translate(${dx}px, ${dy}px) scale(1.1)`;
         this.el.style.zIndex = '9999';
+
+        this.handleHandDragHover(point);
+    },
+
+    handleHandDragHover(point) {
+        // Detect if over player-hand-container
+        const handRect = els.humanHand.getBoundingClientRect();
+        if (point.clientX >= handRect.left && point.clientX <= handRect.right &&
+            point.clientY >= handRect.top && point.clientY <= handRect.bottom) {
+
+            // Calculate target index
+            let newIndex = 0;
+            const children = Array.from(els.humanHand.children);
+
+            // If placeholder exists, ignore it in calculation?
+            // Actually simpler: Find the child whose center is closest to X.
+            // Or find the first child whose center > X.
+
+            let closestDist = Infinity;
+            let closestIndex = children.length;
+
+            // Simple iteration to find insertion point
+            let inserted = false;
+            for (let i = 0; i < children.length; i++) {
+                const child = children[i];
+                if (child === this.placeholder) continue; // Skip placeholder itself
+                if (child.style.display === 'none') continue; // Skip hidden original
+
+                const rect = child.getBoundingClientRect();
+                const center = rect.left + rect.width / 2;
+
+                if (point.clientX < center) {
+                    // Insert before this one
+                    if (!this.placeholder) {
+                        this.createPlaceholder(i);
+                    } else {
+                        // Move placeholder
+                        els.humanHand.insertBefore(this.placeholder, child);
+                    }
+                    inserted = true;
+                    break;
+                }
+            }
+
+            if (!inserted) {
+                // Append to end
+                if (!this.placeholder) {
+                    this.createPlaceholder(children.length);
+                } else {
+                    els.humanHand.appendChild(this.placeholder);
+                }
+            }
+
+            // Recalculate margins for overlap visual
+            // We can reuse renderPlayer logic style or just rely on CSS
+            // renderPlayer applies overlap margins.
+            // Since we are modifying DOM, margins might be stale.
+            // Let's do a quick pass to update margins.
+            this.updatePlaceholderMargins();
+        } else {
+            // Outside hand. If we came from hand, keep placeholder?
+            // Or remove it?
+            // User might want to drag OUT of hand (to Pile or LC).
+            // If dragging from Hand, placeholder keeps spot until dropped.
+            // If dragging from LC/Pile, remove placeholder if outside?
+            if (this.item.source !== 'hand' && this.placeholder) {
+                this.placeholder.remove();
+                this.placeholder = null;
+            }
+        }
+    },
+
+    updatePlaceholderMargins() {
+        const children = Array.from(els.humanHand.children).filter(c => c.style.display !== 'none');
+        if (children.length <= 1) return;
+
+        const containerWidth = els.humanHand.clientWidth - 20;
+        const cardWidth = 60;
+        let marginLeft = 0;
+        const totalWidthNeeded = children.length * cardWidth;
+
+        if (totalWidthNeeded > containerWidth) {
+            const spacePerCard = (containerWidth - cardWidth) / (children.length - 1);
+            marginLeft = spacePerCard - cardWidth;
+        }
+
+        children.forEach((c, i) => {
+            if (i > 0) {
+                c.style.marginLeft = `${marginLeft}px`;
+            } else {
+                c.style.marginLeft = '0px';
+            }
+        });
     },
 
     handleEnd(e) {
@@ -229,7 +338,6 @@ const dragCtrl = {
         this.active = false;
 
         // Determine Drop Target
-        // We use document.elementFromPoint. For touch end, we need changedTouches.
         const point = e.changedTouches ? e.changedTouches[0] : e;
 
         // Temporarily hide ghost to see what's underneath
@@ -237,43 +345,75 @@ const dragCtrl = {
         let dropTarget = document.elementFromPoint(point.clientX, point.clientY);
         this.el.style.display = 'block';
 
-        // Handle Logic based on Source -> Target
         const source = this.item.source;
+        let actionTaken = false;
 
-        // --- 1. Play Card (Hand/Chance/Stand -> Pile) ---
-        if (dropTarget && dropTarget.closest('#center-pile')) {
-            if (source === 'hand' || source === 'chance' || source === 'stand') {
-                 handlePlayDrop(this.item);
-            }
-        }
-
-        // --- 2. Eat Pile (Pile -> Hand) ---
-        else if (dropTarget && (dropTarget.closest('#player-hand-container') || dropTarget.closest('#player-area'))) {
-            if (source === 'pile') {
-                handleEatDrop();
-            } else if (source === 'chance') {
-                 // Drag LC to Hand (Swap Phase)
-                 if (state.stage === 2) handleSwapDrop(this.item, null, 'hand');
-            }
-        }
-
-        // --- 3. Swap (Hand -> Chance / Chance -> Hand) ---
-        else if (dropTarget && dropTarget.closest('.special-slot') && state.stage === 2) {
+        // --- 1. Swap (Hand -> Chance) ---
+        if (dropTarget && dropTarget.closest('.special-slot') && state.stage === 2) {
              const slot = dropTarget.closest('.special-slot');
              const slotIndex = Array.from(els.humanSpecial.children).indexOf(slot);
 
              if (source === 'hand') {
                  handleSwapDrop(this.item, slotIndex, 'chance');
+                 actionTaken = true;
              }
         }
 
+        // --- 2. Play Card (Hand/Chance/Stand -> Pile) ---
+        else if (dropTarget && dropTarget.closest('#center-pile')) {
+            if (source === 'hand' || source === 'chance' || source === 'stand') {
+                 handlePlayDrop(this.item);
+                 actionTaken = true;
+            }
+        }
+
+        // --- 3. Eat/Move (Pile -> Hand OR Chance -> Hand) ---
+        else if (dropTarget && (dropTarget.closest('#player-hand-container') || dropTarget.closest('#player-area'))) {
+            if (source === 'pile') {
+                handleEatDrop();
+                actionTaken = true;
+            } else if (source === 'chance' && state.stage === 2) {
+                 handleSwapDrop(this.item, null, 'hand');
+                 actionTaken = true;
+            }
+        }
+
+        // --- 4. Reorder Hand (Dropped on Placeholder or Hand Area) ---
+        // Only if no other action was taken, and we have a placeholder (implies source was hand)
+        if (!actionTaken && this.placeholder && source === 'hand') {
+            const oldIndex = this.item.index;
+            const card = state.players.human.hand[oldIndex];
+
+            // Remove from old
+            state.players.human.hand.splice(oldIndex, 1);
+
+            // Calculate new index
+            // Get all children that are NOT the hidden original
+            const visualChildren = Array.from(els.humanHand.children).filter(c => c.style.display !== 'none');
+            let insertIndex = visualChildren.indexOf(this.placeholder);
+
+            // Insert at new
+            state.players.human.hand.splice(insertIndex, 0, card);
+
+            renderPlayer(); // Clears placeholder and redraws
+        }
+
         // Cleanup
+        if (this.placeholder) this.placeholder.remove();
+        this.placeholder = null;
+
         this.el.remove();
         const originalEl = this.getOriginalElement();
-        if (originalEl) originalEl.classList.remove('dragging');
+        if (originalEl) {
+            originalEl.classList.remove('dragging');
+            originalEl.style.display = ''; // Restore visibility
+        }
 
         this.item = null;
         this.el = null;
+
+        // Ensure UI consistent (restore margins if drag canceled)
+        renderPlayer();
     },
 
     getOriginalElement() {
@@ -323,10 +463,12 @@ function initGame() {
     state.stats.startTime = Date.now();
 
     dealCards(); // Stage 1
-    state.stage = 3; // Skip Swap Stage -> Gameplay
+    state.stage = 2; // Swap Stage
+
+    aiSwapPhase(); // AI optimizes hand immediately
 
     updateUI();
-    determineStartPlayer();
+    // determineStartPlayer(); // Moved to start of gameplay
 }
 
 function resetGame() {
@@ -497,22 +639,155 @@ function handlePlayDrop(item) {
     }
 
     // Normal Validation
-    if (!canBeatPile(card.rank)) {
+    if (state.stage === 3 && !canBeatPile(card.rank)) {
         showMessage("Invalid Move!", "red");
-        // Animate snap back?
+        return;
+    }
+
+    // Stage 2: Start Game Trigger Validation
+    if (state.stage === 2) {
+        // Must be from Hand
+        if (source !== 'hand') {
+            showMessage("Start game from Hand!");
+            return;
+        }
+
+        // Validate Full Setup
+        const handCount = state.players.human.hand.length;
+        const lcCount = state.players.human.lastChance.filter(c => c !== null).length;
+
+        // Hand must be 3, LC must be 3.
+        // Wait, user said "Hand has exactly 3 cards".
+        // If I drag 1 card to play, hand becomes 2. That's fine, the *state before play* must be valid?
+        // User: "The official beginning ... selection of 1-3 cards ... depositing into Pile. This will activate check..."
+        // User: "...equating to precisely 3 cards in the Hand will allow the game the ability to start."
+        // Meaning: You can't start if you have 4 cards in hand and 2 in LC.
+
+        if (handCount !== 3 || lcCount !== 3) {
+            showMessage("Fill Last Chance & Hand (3 each) to start!");
+            return;
+        }
+
+        // Validate Start Card (Cannot be 2 or 10)
+        if (card.rank === 2 || card.rank === 10) {
+            showMessage("Cannot start with 2 or 10!");
+            return;
+        }
+
+        // Trigger Start Sequence
+        startGameSequence([card], [item.index]);
         return;
     }
 
     // Play the card
-    // Note: We only support single card play via Drag for now.
-    // TODO: Multi-select then drag?
-    // Or auto-play duplicates? "If multiple cards of same value, ask?"
-    // User requested "Mimic mobile app". Mobile app drags stack if selected.
-    // For now, let's play the single dragged card.
-    // Advanced: Check for other cards of same rank in hand and ask/auto-play?
-    // Let's auto-play duplicates for convenience if setting enabled? No, sticking to core.
-
     playCards([card], 'human', source, [item.index]);
+}
+
+function startGameSequence(playerCards, playerIndices) {
+    const aiHand = state.players.ai.hand;
+    // AI Lowest (excluding 2 and 10)
+    const aiPlayable = aiHand.filter(c => c.rank !== 2 && c.rank !== 10);
+    let aiLowVal = 15;
+    let aiLowCard = null;
+
+    if (aiPlayable.length > 0) {
+        // Find min rank
+        aiLowVal = Math.min(...aiPlayable.map(c => c.rank));
+        aiLowCard = aiPlayable.find(c => c.rank === aiLowVal);
+    } else {
+        // AI only has specials? Rare but possible. Treat as high?
+        // Rules say lowest starts. If AI has only 2s/10s, Player likely lower (unless Player also has only 2s/10s - prevented by logic).
+        aiLowVal = 15;
+    }
+
+    const playerRank = playerCards[0].rank;
+
+    state.stage = 3; // Start Game
+
+    if (playerRank < aiLowVal) {
+        // Player Starts
+        showMessage("You start! (Lower Card)", "green");
+        playCards(playerCards, 'human', 'hand', playerIndices);
+        // Turn switches to AI in playCards
+    } else {
+        // Opponent Starts (Lower or Tie)
+        showMessage("Opponent starts!", "red");
+
+        // 1. Opponent Plays
+        // We need to simulate the AI playing its lowest card(s).
+        // Find all cards of that rank to play multiple?
+        const aiMoves = aiHand.filter(c => c.rank === aiLowVal);
+        const aiIndices = aiMoves.map(c => aiHand.indexOf(c));
+
+        // Animation for AI
+        const endRect = els.pile.getBoundingClientRect();
+        const startRect = els.aiHandCount.parentElement.getBoundingClientRect();
+
+        aiMoves.forEach((c, i) => {
+             // Create visual clone for animation since we can't see AI hand
+             // Or just animate generic back? No, reveal it.
+             // Helper to animate specific card data
+             animator.animateCard(c, startRect, endRect);
+        });
+
+        // Delay for animation
+        setTimeout(() => {
+            playCards(aiMoves, 'ai', 'hand', aiIndices);
+
+            // 2. Player's Selected Cards Play
+            // Turn is now Human (set by playCards)
+            // But we need to force play.
+
+            setTimeout(() => {
+                // Check if valid against AI move?
+                // User said "then the player's selected cards will be played".
+                // Implies forced play.
+                // We bypass "canBeatPile" check by calling playCards directly.
+                // However, playCards doesn't check validity, it just executes.
+                // So this works.
+                playCards(playerCards, 'human', 'hand', playerIndices);
+            }, 1000);
+
+        }, 600);
+    }
+}
+
+function handleSwapDrop(item, slotIndex, targetType) {
+    if (state.stage !== 2) return;
+
+    const source = item.source; // 'hand' or 'chance'
+    const hand = state.players.human.hand;
+    const chance = state.players.human.lastChance;
+
+    if (targetType === 'hand') {
+        // Source: Chance -> Target: Hand
+        // Simply move to hand
+        if (source === 'chance') {
+            const card = chance[item.index];
+            if (card) {
+                chance[item.index] = null;
+                hand.push(card);
+                updateUI();
+            }
+        }
+    } else if (targetType === 'chance') {
+        // Source: Hand -> Target: Chance [slotIndex]
+        if (source === 'hand') {
+            const handCard = hand[item.index];
+            const chanceCard = chance[slotIndex];
+
+            if (chanceCard === null) {
+                // Empty slot: Move
+                hand.splice(item.index, 1);
+                chance[slotIndex] = handCard;
+            } else {
+                // Occupied: Swap
+                hand[item.index] = chanceCard;
+                chance[slotIndex] = handCard;
+            }
+            updateUI();
+        }
+    }
 }
 
 function handleEatDrop() {
@@ -663,6 +938,62 @@ function replenishHand(playerKey) {
 }
 
 // --- AI Logic (Ported/Simplified) ---
+
+function aiSwapPhase() {
+    // AI optimizes hand for Swap Phase:
+    // Keep lowest cards in Hand (to beat low cards or start).
+    // Put highest cards (preferably 2, 10, Ace, King) in Last Chance.
+    // However, usually you want 10 and 2 in Hand to save yourself.
+    // Strategy:
+    // 1. Collect all cards (Hand + LC)
+    // 2. Sort by value.
+    // 3. Best cards (2, 10) -> Keep in Hand? Or put in LC as insurance?
+    //    Standard strategy: Put High Cards (A, K, Q) in LC. Keep Low Cards (3, 4, 5) in Hand to start/play early.
+    //    Keep Special Cards (2, 10) in Hand for emergencies.
+    //    Actually, if you put 2/10 in LC, they are safe until end.
+    //    Let's go with: Keep 2, 10 in Hand. Put highest remaining in LC.
+
+    const p = state.players.ai;
+    let allCards = [...p.hand, ...p.lastChance.filter(c => c)];
+
+    // Sort: 2 and 10 are special. Let's assign them a "sort value".
+    // We want to KEEP low cards in hand. PUT high cards in LC.
+    // 2 and 10 are valuable. Maybe keep them in hand.
+    // Let's sort by raw rank for "High Card" determination, but handle 2/10 specially.
+    // Actually, simple logic:
+    // Sort all by value (Ascending).
+    // Take top 3 "Best for LC" -> High Ranks.
+    // But 2 and 10 are good.
+    // Let's just maximize Rank for LC (A, K, Q...).
+    // Leave 2 and 10 in hand (value 2, 10).
+
+    // Reset arrays
+    p.hand = [];
+    p.lastChance = [null, null, null];
+
+    // Priority for LC: A(14), K(13), Q(12)...
+    // 2 and 10 should be low priority for LC (keep in hand).
+    allCards.sort((a,b) => {
+        // We want highest ranks first in this sort to pick for LC.
+        // But 2 and 10 we want to treat as "Low" (keep in hand).
+        let valA = a.rank;
+        let valB = b.rank;
+        if (valA === 2 || valA === 10) valA = -1; // Keep
+        if (valB === 2 || valB === 10) valB = -1; // Keep
+        return valB - valA; // Descending
+    });
+
+    // Pick top 3 for LC
+    for (let i=0; i<3; i++) {
+        if (allCards.length > 0) {
+            p.lastChance[i] = allCards.shift();
+        }
+    }
+
+    // Rest to Hand
+    p.hand = allCards;
+    sortHand('ai');
+}
 
 function aiTurn() {
     if (state.turn !== 'ai') return;
