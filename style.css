@@ -521,3 +521,12 @@ body {
     gap: 20px;
     width: 100%;
 }
+.card-placeholder {
+    width: var(--card-width);
+    height: var(--card-height);
+    background-color: rgba(255, 255, 255, 0.2);
+    border: 2px dashed rgba(255, 255, 255, 0.5);
+    border-radius: 5px;
+    flex-shrink: 0;
+    margin-left: 0; /* Updated dynamically if needed */
+}
